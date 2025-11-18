@@ -4,6 +4,22 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.1] - 2025-11-18
+
+### Changed
+
+**Annotation Format**
+
+- Updated vtable entry comments to `"index: X | offset: Y"` format (includes both virtual function index and byte offset)
+- Removed function-level comments from decompiled code (assembly-only annotation now)
+
+**Function Detection**
+
+- Enhanced function pointer validation with name-based trust (accepts IDA auto-generated names: `sub_*`, `nullsub_*`, `j_*`, `*_vfunc_*`)
+- Increased invalid entry tolerance from 2 to 5 consecutive entries for better vtable scanning
+
+---
+
 ## [1.0.0] - 2025-11-16
 
 ### Added

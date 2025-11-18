@@ -57,10 +57,8 @@ public:
         for (const auto &v : vtables)
             all_addrs.push_back(v.address);
 
-        msg("[VTableExplorer] Selected: %s @ 0x%llX\n",
-            vt.class_name.c_str(), (unsigned long long)vt.address);
-
-        int count = smart_annotator::annotate_vtable(vt.address, vt.is_windows, all_addrs);
+        // Call enhanced annotator with class name
+        int count = smart_annotator::annotate_vtable(vt.address, vt.is_windows, all_addrs, vt.class_name);
 
         jumpto(vt.address);
 
@@ -74,6 +72,7 @@ public:
 
         return cbret_t(n);
     }
+
 };
 
 inline void show_vtable_chooser() {

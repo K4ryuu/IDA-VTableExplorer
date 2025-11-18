@@ -47,9 +47,9 @@ struct vtable_plugin_ctx_t : public plugmod_t {
 
 // Initialize plugin
 plugmod_t* idaapi init() {
-    msg("[VTableExplorer] Plugin loaded v2.0\n");
+    msg("[VTableExplorer] Plugin loaded v1.0.1\n");
 
-    action_desc_t desc = ACTION_DESC_LITERAL(
+    action_desc_t desc_explorer = ACTION_DESC_LITERAL(
         "vtable:explorer",
         "VTable Explorer",
         &ah_explorer,
@@ -62,7 +62,8 @@ plugmod_t* idaapi init() {
         -1
     );
 
-    register_action(desc);
+    register_action(desc_explorer);
+
     hook_to_notification_point(HT_UI, ui_notification, nullptr);
 
     return new vtable_plugin_ctx_t;
@@ -75,7 +76,7 @@ plugin_t PLUGIN = {
     init,
     nullptr,
     nullptr,
-    "VTable Explorer v2.0 - Symbol-based vtable detection & annotation",
+    "VTable Explorer v1.0.1 - Symbol-based vtable detection & annotation",
     "https://github.com/K4ryuu/IDA-VTableExplorer",
     "VTableExplorer",
 #ifdef __MAC__

@@ -49,6 +49,19 @@ inline bool is_valid_function_pointer(ea_t addr) {
     if (is_code(get_flags(addr)))
         return true;
 
+    // Has a function-like name? (Trust IDA's judgment)
+    qstring name;
+    if (get_name(&name, addr) && name.length() > 0) {
+        std::string func_name(name.c_str());
+        // Check for IDA auto-generated function names
+        if (func_name.rfind("sub_", 0) == 0 ||
+            func_name.rfind("nullsub_", 0) == 0 ||
+            func_name.rfind("j_", 0) == 0 ||
+            func_name.find("_vfunc_") != std::string::npos) {
+            return true;  // IDA named it as a function, accept it
+        }
+    }
+
     // Try function prologue detection (x86/x64)
     uint8 byte = get_byte(addr);
     if (byte == 0x55 || byte == 0x48 || byte == 0x40 || byte == 0x41)
@@ -70,13 +83,14 @@ inline ea_t find_next_vtable(ea_t current_vtable, const std::vector<ea_t>& all_v
     return next;
 }
 
-// Annotate vtable with indices
-inline int annotate_vtable(ea_t vtable_addr, bool is_windows, const std::vector<ea_t>& all_vtables) {
+// Annotate vtable with indices (enhanced version)
+inline int annotate_vtable(ea_t vtable_addr, bool is_windows, const std::vector<ea_t>& all_vtables,
+                            const std::string& class_name = "") {
     int ptr_size = inf_is_64bit() ? 8 : 4;
     int start_offset = detect_vfunc_start_offset(vtable_addr, is_windows);
     int annotated_count = 0;
     int consecutive_invalid = 0;
-    const int max_consecutive_invalid = 2;
+    const int max_consecutive_invalid = 5;  // Allow more invalid entries before stopping
     const int max_entries = 1024;
 
     ea_t next_vtable = find_next_vtable(vtable_addr, all_vtables);
@@ -128,20 +142,9 @@ inline int annotate_vtable(ea_t vtable_addr, bool is_windows, const std::vector<
         if (!is_code(get_flags(func_ptr)))
             add_func(func_ptr);
 
-        // Comment at function
-        qstring func_cmt;
-        get_cmt(&func_cmt, func_ptr, false);
-        std::string new_cmt = "vtable index: " + std::to_string(vfunc_index);
-
-        if (func_cmt.find("vtable index") == qstring::npos) {
-            if (!func_cmt.empty())
-                func_cmt.append("\n");
-            func_cmt.append(new_cmt.c_str());
-            set_cmt(func_ptr, func_cmt.c_str(), false);
-        }
-
-        // Comment at vtable entry
-        std::string entry_cmt = "vtable index #" + std::to_string(vfunc_index);
+        // Comment at vtable entry (assembly)
+        int byte_offset = (start_offset + vfunc_index) * ptr_size;
+        std::string entry_cmt = "index: " + std::to_string(vfunc_index) + " | offset: " + std::to_string(byte_offset);
         set_cmt(entry_addr, entry_cmt.c_str(), false);
 
         annotated_count++;
@@ -149,7 +152,6 @@ inline int annotate_vtable(ea_t vtable_addr, bool is_windows, const std::vector<
     }
 
 done:
-    msg("[VTableExplorer] Annotation complete: %d functions\n", annotated_count);
     return annotated_count;
 }
 
