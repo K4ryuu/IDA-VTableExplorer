@@ -21,18 +21,14 @@ struct VTableInfo {
 
 namespace vtable_detector {
 
-// Check if extracted class name is valid
 inline bool is_valid_class_name(const std::string& name) {
-    // Minimum 3 characters, maximum 100 characters
     if (name.empty() || name.length() < 3 || name.length() > 100)
         return false;
 
-    // Must start with uppercase letter or underscore (C++ class naming convention)
     char first = name[0];
     if (!isupper(first) && first != '_')
         return false;
 
-    // Filter out names that are just special characters
     bool has_alnum = false;
     for (char c : name) {
         if (isalnum(c) || c == '_') {
@@ -44,7 +40,6 @@ inline bool is_valid_class_name(const std::string& name) {
     if (!has_alnum)
         return false;
 
-    // Filter out names that are just repeated single characters (like "EE", "EEE", "___")
     bool all_same = true;
     char first_char = name[0];
     for (size_t i = 1; i < name.length(); ++i) {
@@ -57,35 +52,29 @@ inline bool is_valid_class_name(const std::string& name) {
     if (all_same)
         return false;
 
-    // Check ratio of alphanumeric to total length (should be mostly alphanumeric)
     int alnum_count = 0;
     for (char c : name) {
         if (isalnum(c) || c == '_')
             alnum_count++;
     }
 
-    // At least 60% should be alphanumeric/underscore
     if ((float)alnum_count / name.length() < 0.6f)
         return false;
 
-    // Filter out names with excessive Itanium mangling artifacts
-    // Only reject if there are MANY mangling patterns (likely broken extraction)
     int mangling_pattern_count = 0;
     for (size_t i = 0; i < name.length() - 1; ++i) {
-        // Count EL, EE, L<digit> patterns
         if ((name[i] == 'E' && (name[i+1] == 'L' || name[i+1] == 'E')) ||
             (name[i] == 'L' && isdigit(name[i+1]))) {
             mangling_pattern_count++;
         }
     }
-    // Only reject if more than 3 mangling patterns (very likely broken)
+
     if (mangling_pattern_count > 3)
         return false;
 
     return true;
 }
 
-// Demangle and extract class name from symbol
 inline std::string extract_class_name(const char* mangled_name, bool& is_windows) {
     std::string sym_name(mangled_name);
     qstring demangled;
@@ -122,7 +111,6 @@ inline std::string extract_class_name(const char* mangled_name, bool& is_windows
         }
     }
 
-    // Fallback: parse Itanium mangling manually
     if (sym_name.rfind("_ZTV", 0) == 0) {
         const char* name_start = sym_name.c_str() + 4;
 
@@ -155,10 +143,7 @@ inline std::string extract_class_name(const char* mangled_name, bool& is_windows
             if (name_len > 0 && name_len < 1024) {
                 std::string class_name(name_ptr, name_len);
 
-                // Try to clean up mangling artifacts from the extracted name
-                // Look for patterns like "E18CSVCMsg_HLTVStatusL13..." and extract "CSVCMsg_HLTVStatus"
                 if (!is_valid_class_name(class_name)) {
-                    // Find the first uppercase letter after any leading digits/chars
                     size_t first_upper = 0;
                     for (size_t i = 0; i < class_name.length(); ++i) {
                         if (isupper(class_name[i])) {
@@ -167,7 +152,6 @@ inline std::string extract_class_name(const char* mangled_name, bool& is_windows
                         }
                     }
 
-                    // Find where template encoding starts (L<digit> pattern)
                     size_t template_start = class_name.find_first_of('L');
                     while (template_start != std::string::npos) {
                         if (template_start + 1 < class_name.length() && isdigit(class_name[template_start + 1])) {
@@ -194,7 +178,6 @@ inline std::string extract_class_name(const char* mangled_name, bool& is_windows
     return "";
 }
 
-// Symbol-based vtable detection (like Python version)
 inline std::vector<VTableInfo> find_vtables() {
     std::vector<VTableInfo> vtables;
     std::map<std::string, ea_t> seen;
@@ -212,7 +195,6 @@ inline std::vector<VTableInfo> find_vtables() {
         bool is_windows = false;
         std::string class_name;
 
-        // Linux/GCC vtables: _ZTV prefix
         if (sym_name.rfind("_ZTV", 0) == 0) {
             class_name = extract_class_name(sym_name.c_str(), is_windows);
 
@@ -229,7 +211,6 @@ inline std::vector<VTableInfo> find_vtables() {
                 }
             }
         }
-        // Windows/MSVC vtables: ??_7 prefix
         else if (sym_name.rfind("??_7", 0) == 0) {
             class_name = extract_class_name(sym_name.c_str(), is_windows);
 
@@ -250,7 +231,6 @@ inline std::vector<VTableInfo> find_vtables() {
                 }
             }
         }
-        // Additional patterns: vftable, vtbl in name
         else if (sym_name.find("vftable") != std::string::npos ||
                  sym_name.find("vtbl") != std::string::npos) {
 
@@ -276,7 +256,6 @@ inline std::vector<VTableInfo> find_vtables() {
         }
     }
 
-    // Sort by class name
     std::sort(vtables.begin(), vtables.end(),
         [](const VTableInfo& a, const VTableInfo& b) {
             return a.display_name < b.display_name;

@@ -4,7 +4,6 @@
 #include <kernwin.hpp>
 #include "vtable_chooser.h"
 
-// Action handler
 struct vtable_explorer_action_t : public action_handler_t {
     virtual int idaapi activate(action_activation_ctx_t*) override {
         show_vtable_chooser();
@@ -18,7 +17,6 @@ struct vtable_explorer_action_t : public action_handler_t {
 
 static vtable_explorer_action_t ah_explorer;
 
-// Context menu integration
 static ssize_t idaapi ui_notification(void*, int notification_code, va_list va) {
     if (notification_code == ui_finish_populating_widget_popup) {
         TWidget* widget = va_arg(va, TWidget*);
@@ -32,7 +30,6 @@ static ssize_t idaapi ui_notification(void*, int notification_code, va_list va) 
     return 0;
 }
 
-// Plugin module
 struct vtable_plugin_ctx_t : public plugmod_t {
     virtual bool idaapi run(size_t) override {
         show_vtable_chooser();
@@ -45,7 +42,6 @@ struct vtable_plugin_ctx_t : public plugmod_t {
     }
 };
 
-// Initialize plugin
 plugmod_t* idaapi init() {
     msg("[VTableExplorer] Plugin loaded v1.0.1\n");
 
@@ -69,7 +65,6 @@ plugmod_t* idaapi init() {
     return new vtable_plugin_ctx_t;
 }
 
-// Plugin descriptor
 plugin_t PLUGIN = {
     IDP_INTERFACE_VERSION,
     PLUGIN_MULTI,

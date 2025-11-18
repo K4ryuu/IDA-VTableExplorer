@@ -57,7 +57,6 @@ public:
         for (const auto &v : vtables)
             all_addrs.push_back(v.address);
 
-        // Call enhanced annotator with class name
         int count = smart_annotator::annotate_vtable(vt.address, vt.is_windows, all_addrs, vt.class_name);
 
         jumpto(vt.address);

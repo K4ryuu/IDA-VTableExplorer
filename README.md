@@ -94,9 +94,9 @@ _ZTV6Player → vtable for Player
 ```
 .data:1CDB018 _ZTV6CCSBot:              ; vtable for 'CCSBot'
 .data:1CDB020   dq offset _ZTI6CCSBot  ; typeinfo (RTTI)
-.data:1CDB028   dq offset sub_A23D00   ; vtable index #0
-.data:1CDB030   dq offset sub_A237B0   ; vtable index #1
-.data:1CDB038   dq offset sub_A283C0   ; vtable index #2
+.data:1CDB028   dq offset sub_A23D00   ; index: 0 | offset: 0
+.data:1CDB030   dq offset sub_A237B0   ; index: 1 | offset: 8
+.data:1CDB038   dq offset sub_A283C0   ; index: 2 | offset: 16
 ```
 
 ---
@@ -176,8 +176,10 @@ See [docker/README.md](docker/README.md) for implementation details.
 **Annotation Strategy:**
 
 - 0-based indexing (matches C++ standard)
+- Includes both index and byte offset in comments (`index: X | offset: Y`)
 - Skips typeinfo/RTTI pointers
-- Handles consecutive invalid entries gracefully
+- Tolerates up to 5 consecutive invalid entries for better vtable scanning
+- Enhanced function detection (trusts IDA auto-generated function names)
 
 ---
 

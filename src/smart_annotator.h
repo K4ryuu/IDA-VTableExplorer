@@ -32,7 +32,6 @@ inline int detect_vfunc_start_offset(ea_t vtable_addr, bool is_windows) {
     return 2;
 }
 
-// Validate if address is a function pointer
 inline bool is_valid_function_pointer(ea_t addr) {
     if (addr == 0 || addr == BADADDR)
         return false;
@@ -45,24 +44,21 @@ inline bool is_valid_function_pointer(ea_t addr) {
     if (!seg || !(seg->perm & SEGPERM_EXEC))
         return false;
 
-    // Already code?
     if (is_code(get_flags(addr)))
         return true;
 
-    // Has a function-like name? (Trust IDA's judgment)
+    // Trust IDA's judgment on function names
     qstring name;
     if (get_name(&name, addr) && name.length() > 0) {
         std::string func_name(name.c_str());
-        // Check for IDA auto-generated function names
         if (func_name.rfind("sub_", 0) == 0 ||
             func_name.rfind("nullsub_", 0) == 0 ||
             func_name.rfind("j_", 0) == 0 ||
             func_name.find("_vfunc_") != std::string::npos) {
-            return true;  // IDA named it as a function, accept it
+            return true;
         }
     }
 
-    // Try function prologue detection (x86/x64)
     uint8 byte = get_byte(addr);
     if (byte == 0x55 || byte == 0x48 || byte == 0x40 || byte == 0x41)
         return true;
@@ -70,7 +66,6 @@ inline bool is_valid_function_pointer(ea_t addr) {
     return false;
 }
 
-// Find next vtable (boundary detection)
 inline ea_t find_next_vtable(ea_t current_vtable, const std::vector<ea_t>& all_vtable_addrs) {
     ea_t next = BADADDR;
 
@@ -83,14 +78,12 @@ inline ea_t find_next_vtable(ea_t current_vtable, const std::vector<ea_t>& all_v
     return next;
 }
 
-// Annotate vtable with indices (enhanced version)
-inline int annotate_vtable(ea_t vtable_addr, bool is_windows, const std::vector<ea_t>& all_vtables,
-                            const std::string& class_name = "") {
+inline int annotate_vtable(ea_t vtable_addr, bool is_windows, const std::vector<ea_t>& all_vtables, const std::string& class_name = "") {
     int ptr_size = inf_is_64bit() ? 8 : 4;
     int start_offset = detect_vfunc_start_offset(vtable_addr, is_windows);
     int annotated_count = 0;
     int consecutive_invalid = 0;
-    const int max_consecutive_invalid = 5;  // Allow more invalid entries before stopping
+    const int max_consecutive_invalid = 5;
     const int max_entries = 1024;
 
     ea_t next_vtable = find_next_vtable(vtable_addr, all_vtables);
@@ -142,13 +135,12 @@ inline int annotate_vtable(ea_t vtable_addr, bool is_windows, const std::vector<
         if (!is_code(get_flags(func_ptr)))
             add_func(func_ptr);
 
-        // Comment at vtable entry (assembly)
         int byte_offset = (start_offset + vfunc_index) * ptr_size;
         std::string entry_cmt = "index: " + std::to_string(vfunc_index) + " | offset: " + std::to_string(byte_offset);
         set_cmt(entry_addr, entry_cmt.c_str(), false);
 
         annotated_count++;
-        vfunc_index++; // Increment only for successfully annotated functions
+        vfunc_index++;
     }
 
 done:
