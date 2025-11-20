@@ -31,18 +31,18 @@ build: check-docker
 	@docker create --name vtable-all-extract vtable-all-artifacts
 	@mkdir -p release
 	@docker cp vtable-all-extract:/vtable64-linux-x64.so release/
-	@docker cp vtable-all-extract:/vtable64-windows-x64.dll release/
 	@docker cp vtable-all-extract:/vtable64-macos-arm64.dylib release/
 	@docker cp vtable-all-extract:/vtable64-macos-x64.dylib release/
 	@docker rm vtable-all-extract
 	@docker rmi vtable-all-artifacts
 	@printf "\n[*] ========================================\n"
-	@printf "[+] All platforms built successfully!\n"
+	@printf "[+] Linux & macOS built successfully!\n"
 	@printf "\n"
 	@printf "    Linux:      release/vtable64-linux-x64.so\n"
-	@printf "    Windows:    release/vtable64-windows-x64.dll\n"
 	@printf "    macOS ARM:  release/vtable64-macos-arm64.dylib\n"
 	@printf "    macOS x64:  release/vtable64-macos-x64.dylib\n"
+	@printf "\n"
+	@printf "    Note: For Windows, use ida-win-build with Clang MSVC ABI\n"
 	@printf "\n"
 
 build-clean:
