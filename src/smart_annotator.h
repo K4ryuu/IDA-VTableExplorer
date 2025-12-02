@@ -7,144 +7,172 @@
 #include <lines.hpp>
 #include <auto.hpp>
 #include <vector>
+#include <algorithm>
 
 namespace smart_annotator {
 
+inline int get_ptr_size() {
+    static int ptr_size = inf_is_64bit() ? 8 : 4;
+    return ptr_size;
+}
+
+inline ea_t read_ptr(ea_t addr) {
+    return get_ptr_size() == 8 ? get_qword(addr) : get_dword(addr);
+}
+
 inline int detect_vfunc_start_offset(ea_t vtable_addr, bool is_windows) {
-    if (is_windows)
-        return 0;
+    if (is_windows) return 0;
 
-    int ptr_size = inf_is_64bit() ? 8 : 4;
-
+    const int ptr_size = get_ptr_size();
     for (int i = 0; i < 4; ++i) {
         ea_t entry_addr = vtable_addr + (i * ptr_size);
+        if (!is_mapped(entry_addr)) continue;
 
-        if (!is_mapped(entry_addr))
-            continue;
-
-        ea_t ptr_val = ptr_size == 8 ? get_qword(entry_addr) : get_dword(entry_addr);
-
-        segment_t* seg = getseg(ptr_val);
-        if (seg && (seg->perm & SEGPERM_EXEC))
-            return i;
+        segment_t* seg = getseg(read_ptr(entry_addr));
+        if (seg && (seg->perm & SEGPERM_EXEC)) return i;
     }
-
     return 2;
 }
 
-inline bool is_valid_function_pointer(ea_t addr) {
-    if (addr == 0 || addr == BADADDR)
-        return false;
+inline bool is_pure_virtual(ea_t func_ptr) {
+    if (!func_ptr || func_ptr == BADADDR) return false;
 
-    if (!is_mapped(addr))
-        return false;
-
-    // Check executable segment
-    segment_t* seg = getseg(addr);
-    if (!seg || !(seg->perm & SEGPERM_EXEC))
-        return false;
-
-    if (is_code(get_flags(addr)))
-        return true;
-
-    // Trust IDA's judgment on function names
     qstring name;
-    if (get_name(&name, addr) && name.length() > 0) {
-        std::string func_name(name.c_str());
-        if (func_name.rfind("sub_", 0) == 0 ||
-            func_name.rfind("nullsub_", 0) == 0 ||
-            func_name.rfind("j_", 0) == 0 ||
-            func_name.find("_vfunc_") != std::string::npos) {
+    if (!get_name(&name, func_ptr) || name.empty()) return false;
+
+    return name.find("__cxa_pure_virtual") != qstring::npos ||
+           name.find("_purecall") != qstring::npos ||
+           name.find("purevirt") != qstring::npos;
+}
+
+inline bool is_typeinfo(ea_t ptr) {
+    qstring name;
+    if (!get_name(&name, ptr)) return false;
+    return name.find("_ZTI") != qstring::npos || name.find("typeinfo") != qstring::npos;
+}
+
+inline bool is_valid_function_pointer(ea_t addr) {
+    if (!addr || addr == BADADDR || !is_mapped(addr)) return false;
+
+    segment_t* seg = getseg(addr);
+    if (!seg || !(seg->perm & SEGPERM_EXEC)) return false;
+
+    if (is_code(get_flags(addr))) return true;
+
+    qstring name;
+    if (get_name(&name, addr) && !name.empty()) {
+        const char* n = name.c_str();
+        if (strncmp(n, "sub_", 4) == 0 ||
+            strncmp(n, "nullsub_", 8) == 0 ||
+            strncmp(n, "j_", 2) == 0 ||
+            strstr(n, "_vfunc_")) {
             return true;
         }
     }
 
-    uint8 byte = get_byte(addr);
-    if (byte == 0x55 || byte == 0x48 || byte == 0x40 || byte == 0x41)
-        return true;
-
-    return false;
+    uint8 b = get_byte(addr);
+    return b == 0x55 || b == 0x48 || b == 0x40 || b == 0x41;
 }
 
-inline ea_t find_next_vtable(ea_t current_vtable, const std::vector<ea_t>& all_vtable_addrs) {
-    ea_t next = BADADDR;
-
-    for (ea_t addr : all_vtable_addrs) {
-        if (addr > current_vtable && (next == BADADDR || addr < next)) {
-            next = addr;
-        }
-    }
-
-    return next;
+inline ea_t find_next_vtable(ea_t current, const std::vector<ea_t>& sorted_addrs) {
+    auto it = std::upper_bound(sorted_addrs.begin(), sorted_addrs.end(), current);
+    return (it != sorted_addrs.end()) ? *it : BADADDR;
 }
 
-inline int annotate_vtable(ea_t vtable_addr, bool is_windows, const std::vector<ea_t>& all_vtables, const std::string& class_name = "") {
-    int ptr_size = inf_is_64bit() ? 8 : 4;
-    int start_offset = detect_vfunc_start_offset(vtable_addr, is_windows);
-    int annotated_count = 0;
-    int consecutive_invalid = 0;
-    const int max_consecutive_invalid = 5;
-    const int max_entries = 1024;
+struct VTableEntry {
+    ea_t entry_addr;
+    ea_t func_ptr;
+    int index;
+    bool is_pure_virtual;
+};
 
-    ea_t next_vtable = find_next_vtable(vtable_addr, all_vtables);
-    int max_check = max_entries;
+struct VTableStats {
+    int func_count = 0;
+    int pure_virtual_count = 0;
+};
 
+template<bool collect_entries, bool annotate>
+inline VTableStats scan_vtable(
+    ea_t vtable_addr,
+    bool is_windows,
+    const std::vector<ea_t>& sorted_vtables,
+    std::vector<VTableEntry>* out_entries = nullptr)
+{
+    VTableStats stats;
+    const int ptr_size = get_ptr_size();
+    const int start_offset = detect_vfunc_start_offset(vtable_addr, is_windows);
+    const ea_t next_vtable = find_next_vtable(vtable_addr, sorted_vtables);
+
+    int max_check = 1024;
     if (next_vtable != BADADDR)
-        max_check = std::min(max_entries, (int)((next_vtable - vtable_addr) / ptr_size));
+        max_check = std::min(max_check, (int)((next_vtable - vtable_addr) / ptr_size));
 
+    int consecutive_invalid = 0;
     int vfunc_index = 0;
+    char cmt_buf[64];
 
-    for (int i = start_offset; i < max_check; ++i) {
+    for (int i = start_offset; i < max_check && consecutive_invalid < 5; ++i) {
         ea_t entry_addr = vtable_addr + (i * ptr_size);
+        if (!is_mapped(entry_addr)) break;
 
-        if (!is_mapped(entry_addr))
-            break;
+        if (std::binary_search(sorted_vtables.begin(), sorted_vtables.end(), entry_addr) &&
+            entry_addr != vtable_addr) break;
 
-        ea_t func_ptr = ptr_size == 8 ? get_qword(entry_addr) : get_dword(entry_addr);
-
-        for (ea_t other_vtable : all_vtables) {
-            if (entry_addr == other_vtable && entry_addr != vtable_addr)
-                goto done;
-        }
-
-        if (func_ptr == 0 || func_ptr == BADADDR) {
-            consecutive_invalid++;
-            if (consecutive_invalid >= max_consecutive_invalid)
-                break;
+        ea_t func_ptr = read_ptr(entry_addr);
+        if (!func_ptr || func_ptr == BADADDR) {
+            ++consecutive_invalid;
             continue;
         }
 
-        if (!is_valid_function_pointer(func_ptr)) {
-            qstring name;
-            get_name(&name, func_ptr);
-            if (name.find("_ZTI") != qstring::npos || name.find("typeinfo") != qstring::npos) {
-                consecutive_invalid++;
-                if (consecutive_invalid >= max_consecutive_invalid)
-                    break;
+        bool pure_virt = is_pure_virtual(func_ptr);
+
+        if (!pure_virt && !is_valid_function_pointer(func_ptr)) {
+            if (is_typeinfo(func_ptr)) {
+                ++consecutive_invalid;
                 continue;
             }
-
-            consecutive_invalid++;
-            if (consecutive_invalid >= max_consecutive_invalid)
-                break;
+            ++consecutive_invalid;
             continue;
         }
 
         consecutive_invalid = 0;
+        stats.func_count++;
+        if (pure_virt) stats.pure_virtual_count++;
 
-        if (!is_code(get_flags(func_ptr)))
-            add_func(func_ptr);
+        if constexpr (collect_entries) {
+            if (out_entries) {
+                out_entries->push_back({entry_addr, func_ptr, vfunc_index, pure_virt});
+            }
+        }
 
-        int byte_offset = (start_offset + vfunc_index) * ptr_size;
-        std::string entry_cmt = "index: " + std::to_string(vfunc_index) + " | offset: " + std::to_string(byte_offset);
-        set_cmt(entry_addr, entry_cmt.c_str(), false);
+        if constexpr (annotate) {
+            if (!is_code(get_flags(func_ptr)))
+                add_func(func_ptr);
 
-        annotated_count++;
-        vfunc_index++;
+            int byte_offset = vfunc_index * ptr_size;
+            qsnprintf(cmt_buf, sizeof(cmt_buf), "index: %d | offset: %d", vfunc_index, byte_offset);
+            set_cmt(entry_addr, cmt_buf, false);
+        }
+
+        ++vfunc_index;
     }
 
-done:
-    return annotated_count;
+    return stats;
+}
+
+inline VTableStats get_vtable_stats(ea_t addr, bool is_win, const std::vector<ea_t>& vtables) {
+    return scan_vtable<false, false>(addr, is_win, vtables);
+}
+
+inline std::vector<VTableEntry> get_vtable_entries(ea_t addr, bool is_win, const std::vector<ea_t>& vtables) {
+    std::vector<VTableEntry> entries;
+    entries.reserve(64);
+    scan_vtable<true, false>(addr, is_win, vtables, &entries);
+    return entries;
+}
+
+inline int annotate_vtable(ea_t addr, bool is_win, const std::vector<ea_t>& vtables, const std::string& = "") {
+    return scan_vtable<false, true>(addr, is_win, vtables).func_count;
 }
 
 } // namespace smart_annotator

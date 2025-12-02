@@ -11,19 +11,25 @@ Automatically discover, navigate, and annotate virtual function tables in compil
 <p align="center">
   <img src="docs/images/vtable-chooser.jpg" alt="VTable Chooser" width="700"/>
   <br/>
-  <em>Searchable and demangled vtable list with 2000+ entries - browse by class name, address, or type</em>
+  <em>Searchable vtable list with function counts, abstract class detection, and pure virtual indicators</em>
+</p>
+
+<p align="center">
+  <img src="docs/images/function-browser.jpg" alt="Function Browser" width="700"/>
+  <br/>
+  <em>Browse all virtual functions in a vtable with pure virtual highlighting</em>
 </p>
 
 <p align="center">
   <img src="docs/images/annotated-vtable.jpg" alt="Annotated VTable" width="700"/>
   <br/>
-  <em>Annotated vtable with function indices and byte offsets for easy hooking</em>
+  <em>Annotated vtable with function indices and byte offsets</em>
 </p>
 
 <p align="center">
-  <img src="docs/images/annotation-complete.jpg" alt="Annotation Complete" width="350"/>
+  <img src="docs/images/context-menu.jpg" alt="Context Menu" width="300"/>
   <br/>
-  <em>Quick annotation feedback with function count</em>
+  <em>Right-click context menu with Annotate All, Browse Functions, and Refresh</em>
 </p>
 
 ---
@@ -37,6 +43,9 @@ Automatically discover, navigate, and annotate virtual function tables in compil
 - Virtual function index annotation (0-based indexing)
 - Searchable vtable list with 2000+ entries
 - Smart offset detection (RTTI-aware)
+- **Function browser** - Browse and jump to any virtual function
+- **Pure virtual detection** - Identifies abstract classes automatically
+- **Batch annotation** - Annotate all vtables at once
 
 **Platform Support**
 
@@ -143,13 +152,21 @@ _ZTV6Player → vtable for Player
 | Hotkey       | `Ctrl+Shift+V` (Win/Linux) / `⌘⇧V` (macOS)     |
 | Context Menu | Right-click in disassembly → `VTable Explorer` |
 
+**Chooser Hotkeys:**
+
+| Key     | Action                                              |
+| ------- | --------------------------------------------------- |
+| `Enter` | Annotate selected vtable and jump to it             |
+| `Del`   | Open function browser for selected vtable           |
+| `Ins`   | Annotate ALL vtables at once (with progress dialog) |
+
 **Workflow:**
 
 1. Open plugin (hotkey or menu)
 2. Browse searchable list of vtables (by class name)
-3. Select a vtable and press Enter
-4. Plugin annotates all virtual functions with indices
-5. IDA jumps to the vtable location
+3. Select a vtable and press `Enter` to annotate, or `Del` to browse functions
+4. In function browser: `Enter` jumps directly to any virtual function
+5. Use `Ins` to batch-annotate all vtables at once
 
 ---
 
@@ -202,6 +219,13 @@ See [docker/README.md](docker/README.md) for implementation details.
 - Skips typeinfo/RTTI pointers
 - Tolerates up to 5 consecutive invalid entries for better vtable scanning
 - Enhanced function detection (trusts IDA auto-generated function names)
+
+**Pure Virtual Detection:**
+
+- Detects `__cxa_pure_virtual` (Linux/GCC)
+- Detects `_purecall` and `purevirt` (Windows/MSVC)
+- Abstract classes marked with `[abstract]` in chooser
+- Function count shows pure virtual breakdown: `26 (3 pv)`
 
 ---
 

@@ -4,6 +4,45 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.1.0] - 2025-12-02
+
+### Added
+
+**Function Browser**
+
+- New `Del` key action: Browse all functions in a vtable
+- Secondary chooser window showing function index, address, name, and status
+- Jump to any function with `Enter` key
+- Pure virtual functions highlighted in red
+
+**Pure Virtual Detection**
+
+- Automatic detection of `__cxa_pure_virtual`, `_purecall`, and `purevirt` symbols
+- Abstract classes marked with `[abstract]` suffix and distinct color
+- Function count shows pure virtual breakdown: `26 (3 pv)`
+
+**Annotate All**
+
+- New `Ins` key action: Annotate all vtables at once
+- Progress indicator with cancel support
+- Summary dialog showing total vtables and functions processed
+
+**UI Improvements**
+
+- New "Functions" column showing function count per vtable
+- Color coding: abstract classes in light blue, pure virtuals in red
+- Dockable tab instead of modal window
+- Singleton chooser - reopening brings back the same tab with cached data
+- Refresh action to rescan vtables
+
+### Optimized
+
+- Cached vtable data for instant reopening
+- Binary search for vtable boundary detection
+- Unified scanner template eliminates duplicate code
+
+---
+
 ## [1.0.2] - 2025-11-20
 
 ### Fixed
@@ -37,83 +76,14 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
-**Platform Support**
-
-- ► IDA Pro 9.x with modern SDK APIs
-- ► macOS ARM64 (Apple Silicon M1/M2/M3)
-- ► macOS Intel x64
-- ► Linux x64
-- ► Windows x64
-- ► Docker multi-platform build system
-
-**Core Features**
-
-- Symbol-based vtable detection (Linux/GCC + Windows/MSVC)
+- Symbol-based vtable detection (`_ZTV*` for Linux/GCC, `??_7*` for Windows/MSVC)
 - Automatic class name extraction from mangled symbols
-- Virtual function index annotation (0-based indexing)
-- Native IDA chooser interface with searchable vtable list
-- Smart RTTI offset detection (Linux: +2, Windows: 0)
-- Boundary detection (stops at next vtable or invalid pointers)
-
-**Symbol Detection**
-
-- `_ZTV*` pattern matching (Linux/GCC vtables)
-- `??_7*@@6B@` pattern matching (Windows/MSVC vftables)
-- Fallback patterns: `*vftable*`, `*vtbl*`
-- Itanium C++ name mangling parser
-- IDA demangler integration
-
-**Annotation System**
-
-- Automatic index annotation (`vtable index #0`, `#1`, etc.)
-- Function-level comments (`vtable index: 0`)
-- Vtable entry comments (`vtable index #0`)
-- 0-based indexing (C++ standard compliant)
-- RTTI/typeinfo pointer skipping
-
-**User Interface**
-
-- Context menu integration (right-click → VTable Explorer)
-- Platform-specific hotkeys (⌘⇧V / Ctrl+Shift+V)
-- Searchable vtable list (2000+ entries support)
-- One-click annotation and navigation
-- Info dialog with annotation summary
-
-### Technical Implementation
-
-**VTable Detection Strategy**
-
-- Symbol enumeration via `get_nlist_size()` / `get_nlist_ea()`
-- Mangled name parsing with length-prefix extraction
-- Nested namespace handling (`_ZTVN...E` format)
-- `_ptr` suffix stripping (IDA symbol decoration)
-
-**Class Name Extraction**
-
-- Primary: IDA `demangle_name()` API
-- Fallback: Manual Itanium C++ name parsing
-- Simple names: `_ZTV<len><name>` extraction
-- Complex names: Nested component extraction
-
-**Offset Detection**
-
-- Auto-detection of first valid function pointer
-- Linux default: offset +2 (after offset-to-top + RTTI)
-- Windows default: offset 0 (immediate vfunc start)
-- Validation: executable segment + function prologue checks
-
-**Annotation Logic**
-
-- Separate `vfunc_index` counter (not loop counter)
-- Skips invalid/typeinfo pointers without breaking index
-- Consecutive invalid limit (max 2)
-- Boundary detection (next vtable or unmapped memory)
-
-### Build System
-
-- Docker multi-stage builds (Linux, Windows, macOS ARM64, macOS x64)
-- Single `make build` command for all platforms
-- Cross-compilation via osxcross and mingw-w64
+- Virtual function index annotation with byte offsets
+- Native IDA chooser with searchable vtable list
+- Smart RTTI offset detection
+- Context menu and hotkey support (⌘⇧V / Ctrl+Shift+V)
+- Multi-platform support: IDA Pro 9.x on Linux, Windows, macOS (ARM64 + x64)
+- Docker-based cross-compilation build system
 
 ---
 

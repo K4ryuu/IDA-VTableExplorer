@@ -17,168 +17,108 @@ struct VTableInfo {
     std::string class_name;
     std::string display_name;
     bool is_windows;
+    int func_count;
+    int pure_virtual_count;
 };
 
 namespace vtable_detector {
 
 inline bool is_valid_class_name(const std::string& name) {
-    if (name.empty() || name.length() < 3 || name.length() > 100)
-        return false;
+    const size_t len = name.length();
+    if (len < 2 || len > 512) return false;
 
-    char first = name[0];
-    if (!isupper(first) && first != '_')
-        return false;
-
-    bool has_alnum = false;
-    for (char c : name) {
-        if (isalnum(c) || c == '_') {
-            has_alnum = true;
-            break;
-        }
-    }
-
-    if (!has_alnum)
-        return false;
-
-    bool all_same = true;
-    char first_char = name[0];
-    for (size_t i = 1; i < name.length(); ++i) {
-        if (name[i] != first_char) {
-            all_same = false;
-            break;
-        }
-    }
-
-    if (all_same)
-        return false;
+    const char first = name[0];
+    if (!isupper(first) && first != '_') return false;
 
     int alnum_count = 0;
-    for (char c : name) {
-        if (isalnum(c) || c == '_')
-            alnum_count++;
-    }
+    int mangling_count = 0;
+    bool all_same = true;
 
-    if ((float)alnum_count / name.length() < 0.6f)
-        return false;
-
-    int mangling_pattern_count = 0;
-    for (size_t i = 0; i < name.length() - 1; ++i) {
-        if ((name[i] == 'E' && (name[i+1] == 'L' || name[i+1] == 'E')) ||
-            (name[i] == 'L' && isdigit(name[i+1]))) {
-            mangling_pattern_count++;
+    for (size_t i = 0; i < len; ++i) {
+        const char c = name[i];
+        if (isalnum(c) || c == '_') ++alnum_count;
+        if (i > 0 && c != first) all_same = false;
+        if (i + 1 < len) {
+            const char next = name[i + 1];
+            if ((c == 'E' && (next == 'L' || next == 'E')) ||
+                (c == 'L' && isdigit(next)))
+                ++mangling_count;
         }
     }
 
-    if (mangling_pattern_count > 3)
-        return false;
-
-    return true;
+    return alnum_count > 0 &&
+           !all_same &&
+           (float)alnum_count / len >= 0.6f &&
+           mangling_count <= 3;
 }
 
 inline std::string extract_class_name(const char* mangled_name, bool& is_windows) {
     std::string sym_name(mangled_name);
-    qstring demangled;
     is_windows = false;
 
-    if (sym_name.length() > 4 && sym_name.substr(sym_name.length() - 4) == "_ptr")
-        sym_name = sym_name.substr(0, sym_name.length() - 4);
+    if (sym_name.length() > 4 && sym_name.compare(sym_name.length() - 4, 4, "_ptr") == 0)
+        sym_name.resize(sym_name.length() - 4);
 
-    int demangle_result = demangle_name(&demangled, sym_name.c_str(), MNG_NODEFINIT);
+    qstring demangled;
+    if (demangle_name(&demangled, sym_name.c_str(), MNG_NODEFINIT) > 0) {
+        const char* dem = demangled.c_str();
 
-    if (demangle_result > 0) {
-        std::string dem_str(demangled.c_str());
-
-        if (dem_str.find("vtable for") != std::string::npos) {
-            size_t pos = dem_str.find("vtable for ");
-            if (pos != std::string::npos) {
-                std::string class_name = dem_str.substr(pos + 11);
-                if (is_valid_class_name(class_name))
-                    return class_name;
-            }
+        const char* vtable_pos = strstr(dem, "vtable for ");
+        if (vtable_pos) {
+            std::string class_name(vtable_pos + 11);
+            if (is_valid_class_name(class_name)) return class_name;
         }
 
-        if (dem_str.find("vftable") != std::string::npos) {
+        const char* vft_pos = strstr(dem, "::`vftable'");
+        if (vft_pos) {
             is_windows = true;
-            size_t const_pos = dem_str.find("const ");
-            size_t vft_pos = dem_str.find("::`vftable'");
-
-            if (const_pos != std::string::npos && vft_pos != std::string::npos) {
-                size_t start = const_pos + 6;
-                std::string class_name = dem_str.substr(start, vft_pos - start);
-                if (is_valid_class_name(class_name))
-                    return class_name;
+            const char* const_pos = strstr(dem, "const ");
+            if (const_pos && const_pos < vft_pos) {
+                std::string class_name(const_pos + 6, vft_pos - const_pos - 6);
+                if (is_valid_class_name(class_name)) return class_name;
             }
         }
     }
 
-    if (sym_name.rfind("_ZTV", 0) == 0) {
-        const char* name_start = sym_name.c_str() + 4;
-        const char* end = sym_name.c_str() + sym_name.length();
+    if (sym_name.compare(0, 4, "_ZTV") != 0) return "";
 
-        if (name_start[0] == 'N') {
-            const char* p = name_start + 1;
-            std::string last_component;
+    const char* p = sym_name.c_str() + 4;
+    const char* end = sym_name.c_str() + sym_name.length();
 
-            while (*p && *p != 'E') {
-                if (isdigit(*p)) {
-                    int len = atoi(p);
-                    while (isdigit(*p)) p++;
+    if (*p == 'N') {
+        std::string last_component;
+        for (++p; *p && *p != 'E'; ) {
+            if (!isdigit(*p)) { ++p; continue; }
 
-                    if (len > 0 && len < 1024) {
-                        if (p + len > end)
-                            break;
+            int len = atoi(p);
+            while (isdigit(*p)) ++p;
+            if (len <= 0 || len >= 1024 || p + len > end) break;
 
-                        last_component = std::string(p, len);
-                        p += len;
-                    }
-                } else {
-                    p++;
-                }
-            }
-
-            if (is_valid_class_name(last_component))
-                return last_component;
+            last_component.assign(p, len);
+            p += len;
         }
-        else if (isdigit(name_start[0])) {
-            int name_len = atoi(name_start);
-            const char* name_ptr = name_start;
-            while (isdigit(*name_ptr)) name_ptr++;
+        if (is_valid_class_name(last_component)) return last_component;
+    }
+    else if (isdigit(*p)) {
+        int len = atoi(p);
+        while (isdigit(*p)) ++p;
+        if (len <= 0 || len >= 1024 || p + len > end) return "";
 
-            if (name_len > 0 && name_len < 1024) {
-                // Bounds check to prevent buffer overrun
-                if (name_ptr + name_len > end)
-                    return "";
-                std::string class_name(name_ptr, name_len);
+        std::string class_name(p, len);
+        if (is_valid_class_name(class_name)) return class_name;
 
-                if (!is_valid_class_name(class_name)) {
-                    size_t first_upper = 0;
-                    for (size_t i = 0; i < class_name.length(); ++i) {
-                        if (isupper(class_name[i])) {
-                            first_upper = i;
-                            break;
-                        }
-                    }
-
-                    size_t template_start = class_name.find_first_of('L');
-                    while (template_start != std::string::npos) {
-                        if (template_start + 1 < class_name.length() && isdigit(class_name[template_start + 1])) {
-                            break;  // Found L<digit>
-                        }
-                        template_start = class_name.find_first_of('L', template_start + 1);
-                    }
-
-                    if (first_upper < class_name.length()) {
-                        size_t end_pos = (template_start != std::string::npos) ? template_start : class_name.length();
-                        std::string cleaned = class_name.substr(first_upper, end_pos - first_upper);
-
-                        if (is_valid_class_name(cleaned))
-                            return cleaned;
-                    }
+        size_t first_upper = class_name.find_first_of("ABCDEFGHIJKLMNOPQRSTUVWXYZ");
+        if (first_upper != std::string::npos) {
+            size_t template_start = std::string::npos;
+            for (size_t i = first_upper; i + 1 < class_name.length(); ++i) {
+                if (class_name[i] == 'L' && isdigit(class_name[i + 1])) {
+                    template_start = i;
+                    break;
                 }
-
-                if (is_valid_class_name(class_name))
-                    return class_name;
             }
+            size_t end_pos = (template_start != std::string::npos) ? template_start : class_name.length();
+            std::string cleaned = class_name.substr(first_upper, end_pos - first_upper);
+            if (is_valid_class_name(cleaned)) return cleaned;
         }
     }
 
@@ -189,84 +129,48 @@ inline std::vector<VTableInfo> find_vtables() {
     std::vector<VTableInfo> vtables;
     std::map<std::string, ea_t> seen;
 
-    size_t name_count = get_nlist_size();
+    const size_t name_count = get_nlist_size();
+    vtables.reserve(name_count / 100);
+
+    auto add_vtable = [&](ea_t ea, const std::string& class_name, bool is_win, const char* suffix) {
+        std::string display = class_name + suffix;
+        if (seen.emplace(display, ea).second) {
+            vtables.push_back({ea, class_name, std::move(display), is_win, 0, 0});
+        }
+    };
 
     for (size_t i = 0; i < name_count; ++i) {
-        ea_t ea = get_nlist_ea(i);
         const char* name = get_nlist_name(i);
+        if (!name || !*name) continue;
 
-        if (!name || name[0] == '\0')
-            continue;
-
-        std::string sym_name(name);
+        ea_t ea = get_nlist_ea(i);
         bool is_windows = false;
         std::string class_name;
 
-        if (sym_name.rfind("_ZTV", 0) == 0) {
-            class_name = extract_class_name(sym_name.c_str(), is_windows);
-
-            if (is_valid_class_name(class_name)) {
-                VTableInfo info;
-                info.address = ea;
-                info.class_name = class_name;
-                info.display_name = class_name + " (Linux/GCC)";
-                info.is_windows = false;
-
-                if (seen.find(info.display_name) == seen.end()) {
-                    seen[info.display_name] = ea;
-                    vtables.push_back(info);
-                }
-            }
+        if (strncmp(name, "_ZTV", 4) == 0) {
+            class_name = extract_class_name(name, is_windows);
+            if (is_valid_class_name(class_name))
+                add_vtable(ea, class_name, false, " (Linux/GCC)");
         }
-        else if (sym_name.rfind("??_7", 0) == 0) {
-            class_name = extract_class_name(sym_name.c_str(), is_windows);
-
-            if (class_name.empty() && sym_name.find("@@6B@") != std::string::npos) {
-                class_name = sym_name.substr(4, sym_name.find("@@6B@") - 4);
-            }
-
-            if (is_valid_class_name(class_name)) {
-                VTableInfo info;
-                info.address = ea;
-                info.class_name = class_name;
-                info.display_name = class_name + " (Windows/MSVC)";
-                info.is_windows = true;
-
-                if (seen.find(info.display_name) == seen.end()) {
-                    seen[info.display_name] = ea;
-                    vtables.push_back(info);
-                }
-            }
-        }
-        else if (sym_name.find("vftable") != std::string::npos ||
-                 sym_name.find("vtbl") != std::string::npos) {
-
-            class_name = extract_class_name(sym_name.c_str(), is_windows);
-
+        else if (strncmp(name, "??_7", 4) == 0) {
+            class_name = extract_class_name(name, is_windows);
             if (class_name.empty()) {
-                class_name = sym_name;
-                is_windows = true;
+                const char* marker = strstr(name, "@@6B@");
+                if (marker) class_name.assign(name + 4, marker - name - 4);
             }
-
-            if (is_valid_class_name(class_name)) {
-                VTableInfo info;
-                info.address = ea;
-                info.class_name = class_name;
-                info.display_name = class_name + " (Detected)";
-                info.is_windows = is_windows;
-
-                if (seen.find(info.display_name) == seen.end()) {
-                    seen[info.display_name] = ea;
-                    vtables.push_back(info);
-                }
-            }
+            if (is_valid_class_name(class_name))
+                add_vtable(ea, class_name, true, " (Windows/MSVC)");
+        }
+        else if (strstr(name, "vftable") || strstr(name, "vtbl")) {
+            class_name = extract_class_name(name, is_windows);
+            if (class_name.empty()) { class_name = name; is_windows = true; }
+            if (is_valid_class_name(class_name))
+                add_vtable(ea, class_name, is_windows, " (Detected)");
         }
     }
 
     std::sort(vtables.begin(), vtables.end(),
-        [](const VTableInfo& a, const VTableInfo& b) {
-            return a.display_name < b.display_name;
-        });
+        [](const VTableInfo& a, const VTableInfo& b) { return a.class_name < b.class_name; });
 
     return vtables;
 }
