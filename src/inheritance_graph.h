@@ -12,7 +12,6 @@
 
 namespace inheritance_graph {
 
-// Simple graph data structure (not inheriting from interactive_graph_t)
 struct graph_data_t {
     std::map<int, std::string> node_labels;
     std::map<int, ea_t> node_vtables;
@@ -42,35 +41,36 @@ struct graph_data_t {
 };
 
 inline void collect_ancestors(
-    const std::string& class_name,
+    const std::string& cls,
     const std::map<std::string, const VTableInfo*>& vtable_map,
     std::set<std::string>& lineage)
 {
-    auto it = vtable_map.find(class_name);
+    auto it = vtable_map.find(cls);
     if (it == vtable_map.end()) return;
 
     const VTableInfo* vt = it->second;
-    if (!vt->base_classes.empty()) {
-        for (const auto& base : vt->base_classes) {
-            if (lineage.insert(base).second) {  // If newly inserted
-                collect_ancestors(base, vtable_map, lineage);  // Recurse up
-            }
-        }
+
+    if (vt->is_intermediate && !vt->parent_class.empty()) {
+        if (lineage.insert(vt->parent_class).second)
+            collect_ancestors(vt->parent_class, vtable_map, lineage);
+        return;
+    }
+
+    for (const auto& base : vt->base_classes) {
+        if (lineage.insert(base).second)
+            collect_ancestors(base, vtable_map, lineage);
     }
 }
 
 inline void collect_descendants(
-    const std::string& class_name,
+    const std::string& cls,
     const std::vector<VTableInfo>* all_vtables,
     std::set<std::string>& lineage)
 {
     for (const auto& vt : *all_vtables) {
-        // If this vtable has class_name as a parent
         for (const auto& base : vt.base_classes) {
-            if (base == class_name) {
-                if (lineage.insert(vt.class_name).second) {  // If newly inserted
-                    collect_descendants(vt.class_name, all_vtables, lineage);  // Recurse down
-                }
+            if (base == cls && lineage.insert(vt.class_name).second) {
+                collect_descendants(vt.class_name, all_vtables, lineage);
                 break;
             }
         }
@@ -78,23 +78,18 @@ inline void collect_descendants(
 }
 
 
-// Callback for graph events
 static ssize_t idaapi graph_callback(void *ud, int code, va_list va) {
     graph_data_t *data = (graph_data_t *)ud;
 
     switch (code) {
-        case grcode_user_refresh:
-            return 1;
+        case grcode_user_refresh: return 1;
 
         case grcode_clicked: {
-            graph_viewer_t *gv = va_arg(va, graph_viewer_t *);
+            va_arg(va, graph_viewer_t *);
             selection_item_t *item = va_arg(va, selection_item_t *);
-
             if (item && item->is_node) {
-                ea_t vtable_addr = data->get_vtable(item->node);
-                if (vtable_addr != BADADDR) {
-                    jumpto(vtable_addr);
-                }
+                ea_t addr = data->get_vtable(item->node);
+                if (addr != BADADDR) jumpto(addr);
             }
             return 0;
         }
@@ -102,74 +97,41 @@ static ssize_t idaapi graph_callback(void *ud, int code, va_list va) {
         case grcode_dblclicked: {
             graph_viewer_t *gv = va_arg(va, graph_viewer_t *);
             selection_item_t *item = va_arg(va, selection_item_t *);
-
-            if (item && item->is_node) {
-                viewer_center_on(gv, item->node);
-            }
+            if (item && item->is_node) viewer_center_on(gv, item->node);
             return 0;
         }
 
-        case grcode_destroyed: {
-            // Graph destroyed - clean up data (each graph is independent now)
-            if (data) {
-                delete data;
-            }
+        case grcode_destroyed:
+            delete data;
             return 0;
-        }
 
-        default:
-            break;
+        default: break;
     }
-
     return 0;
 }
 
 
-inline void calculate_inheritance_stats(
-    ea_t child_vtable_addr,
-    ea_t parent_vtable_addr,
-    bool is_windows,
-    const std::vector<ea_t>& sorted_vtables,
-    int& inherited,
-    int& overridden,
-    int& new_funcs)
+inline void calc_stats(ea_t child, ea_t parent, bool is_win,
+                       const std::vector<ea_t>& sorted,
+                       int& inherited, int& overridden, int& new_funcs)
 {
-    inherited = 0;
-    overridden = 0;
-    new_funcs = 0;
+    inherited = overridden = new_funcs = 0;
+    if (child == BADADDR || parent == BADADDR) return;
 
-    if (child_vtable_addr == BADADDR || parent_vtable_addr == BADADDR) {
-        return;
-    }
-
-    // Use the proven comparison code from vtable_comparison.h
-    auto comparison = vtable_comparison::compare_vtables(
-        child_vtable_addr,
-        parent_vtable_addr,
-        is_windows,
-        sorted_vtables
-    );
-
-    inherited = comparison.inherited_count;
-    overridden = comparison.overridden_count;
-    new_funcs = comparison.new_virtual_count;
+    auto cmp = vtable_comparison::compare_vtables(child, parent, is_win, sorted);
+    inherited = cmp.inherited_count;
+    overridden = cmp.overridden_count;
+    new_funcs = cmp.new_virtual_count;
 }
 
-inline void build_padded_line(char* out, int out_size,
-                               const char* label, const char* value,
-                               int line_width) {
-    int label_len = strlen(label);
-    int value_len = strlen(value);
-    int padding = line_width - 4 - label_len - value_len;  // -4 for "  " on each end
-    if (padding < 1) padding = 1;
+inline void pad_line(char* out, int sz, const char* lbl, const char* val, int w) {
+    int pad = w - 4 - strlen(lbl) - strlen(val);
+    if (pad < 1) pad = 1;
 
-    // Build: "  " + label + padding spaces + value + "  "
     char* p = out;
-    p += qsnprintf(p, out_size, "  %s", label);
-    for (int i = 0; i < padding && (p - out) < out_size - 3; i++) {
-        *p++ = ' ';
-    }
-    qsnprintf(p, out_size - (p - out), "%s  ", value);
+    p += qsnprintf(p, sz, "  %s", lbl);
+    for (int i = 0; i < pad && (p - out) < sz - 3; i++) *p++ = ' ';
+    qsnprintf(p, sz - (p - out), "%s  ", val);
 }
 
 inline void show_inheritance_graph(
@@ -190,7 +152,6 @@ inline void show_inheritance_graph(
 
     show_wait_box("Building lineage...");
 
-    // Build vtable map and sorted addresses for comparison
     std::map<std::string, const VTableInfo*> vtable_map;
     std::vector<ea_t> sorted_vtables;
     sorted_vtables.reserve(all_vtables->size());
@@ -200,7 +161,6 @@ inline void show_inheritance_graph(
     }
     std::sort(sorted_vtables.begin(), sorted_vtables.end());
 
-    // Collect lineage: selected class + all ancestors + all descendants
     std::set<std::string> lineage;
     lineage.insert(class_name);  // Add selected class
 
@@ -212,30 +172,77 @@ inline void show_inheritance_graph(
     collect_descendants(class_name, all_vtables, lineage);  // Add all children down
     size_t descendants_count = lineage.size() - before_descendants;
 
-    // Create graph data with ONLY lineage classes
     graph_data_t *data = new graph_data_t();
     std::map<std::string, int> class_to_node;
 
-    // Colors - Medium-dark backgrounds with good text contrast
     using namespace vtable_utils;
     const uint32 NORMAL_COLOR = GRAPH_NORMAL;     // Medium-dark tan (good contrast)
     const uint32 SELECTED_COLOR = GRAPH_SELECTED; // Lighter tan for selection highlight
     const uint32 ABSTRACT_COLOR = GRAPH_ABSTRACT; // Medium purple (good contrast)
 
-    // Add nodes for lineage classes only with MULTILINE labels
     for (const std::string& cls : lineage) {
         auto it = vtable_map.find(cls);
-        if (it == vtable_map.end()) continue;
 
-        const VTableInfo* vt = it->second;
+        bool found = (it != vtable_map.end());
+        const VTableInfo* vt = found ? it->second : nullptr;
+        bool is_intermediate = found ? vt->is_intermediate : true;
 
-        // Build structured label with dynamic width based on class name length
         char label[1024];
         char lines[10][256];
         int line_count = 0;
-        bool is_abstract = (vt->pure_virtual_count > 0);
+        bool is_abstract = (found && !is_intermediate) ? (vt->pure_virtual_count > 0) : false;
 
-        // Line 0: Class name with SELECTED marker
+        // Intermediate node
+        if (!found || is_intermediate) {
+            bool is_selected = (cls == class_name);
+            if (is_selected) {
+                qsnprintf(lines[line_count++], 256, "  %s (SELECTED)  ", cls.c_str());
+            } else {
+                qsnprintf(lines[line_count++], 256, "  %s  ", cls.c_str());
+            }
+
+            int name_len = strlen(lines[0]);
+            const int LINE_WIDTH = (name_len > 50) ? name_len : 50;
+            if (name_len < LINE_WIDTH) {
+                for (int i = name_len; i < LINE_WIDTH && i < 255; i++) {
+                    lines[0][i] = ' ';
+                }
+                lines[0][LINE_WIDTH] = '\0';
+            }
+
+            int sep_idx = 0;
+            lines[line_count][sep_idx++] = ' ';
+            lines[line_count][sep_idx++] = ' ';
+            for (int i = 2; i < LINE_WIDTH - 2 && sep_idx < 255; i++) {
+                lines[line_count][sep_idx++] = '-';
+            }
+            lines[line_count][sep_idx++] = ' ';
+            lines[line_count][sep_idx++] = ' ';
+            lines[line_count][sep_idx] = '\0';
+            line_count++;
+
+            if (found && vt->parent_vtable_addr != BADADDR) {
+                char parent_ref[64];
+                qsnprintf(parent_ref, sizeof(parent_ref), "uses %s", vt->parent_class.c_str());
+                pad_line(lines[line_count++], 256, "VTable  :", parent_ref, LINE_WIDTH);
+            } else {
+                pad_line(lines[line_count++], 256, "VTable  :", "(none)", LINE_WIDTH);
+            }
+            pad_line(lines[line_count++], 256, "Type    :", "Inlined by compiler", LINE_WIDTH);
+
+            label[0] = '\0';
+            for (int i = 0; i < line_count; i++) {
+                if (i > 0) qstrncat(label, "\n", sizeof(label) - strlen(label) - 1);
+                qstrncat(label, lines[i], sizeof(label) - strlen(label) - 1);
+            }
+
+            uint32 color = is_selected ? SELECTED_COLOR : 0x808080;
+            ea_t node_addr = (found && vt->parent_vtable_addr != BADADDR) ? vt->parent_vtable_addr : BADADDR;
+            int node = data->add_node(label, node_addr, color);
+            class_to_node[cls] = node;
+            continue;
+        }
+
         bool is_selected = (cls == class_name);
         if (is_selected && is_abstract) {
             qsnprintf(lines[line_count++], 256, "  %s [abstract] (SELECTED)  ", cls.c_str());
@@ -247,11 +254,9 @@ inline void show_inheritance_graph(
             qsnprintf(lines[line_count++], 256, "  %s  ", cls.c_str());
         }
 
-        // Calculate actual line width based on class name (minimum 50, max from name)
         int name_len = strlen(lines[0]);
         const int LINE_WIDTH = (name_len > 50) ? name_len : 50;
 
-        // Pad class name line to LINE_WIDTH
         if (name_len < LINE_WIDTH) {
             for (int i = name_len; i < LINE_WIDTH && i < 255; i++) {
                 lines[0][i] = ' ';
@@ -259,7 +264,6 @@ inline void show_inheritance_graph(
             lines[0][LINE_WIDTH] = '\0';
         }
 
-        // Line 1: Separator (dynamic width matching LINE_WIDTH)
         int sep_idx = 0;
         lines[line_count][sep_idx++] = ' ';
         lines[line_count][sep_idx++] = ' ';
@@ -271,23 +275,21 @@ inline void show_inheritance_graph(
         lines[line_count][sep_idx] = '\0';
         line_count++;
 
-        // Line 2: Address (label left, value right) - 9-char fixed-width labels
         char addr_val[32];
         qsnprintf(addr_val, sizeof(addr_val), "0x%llX", (unsigned long long)vt->address);
-        build_padded_line(lines[line_count++], 256, "Addr    :", addr_val, LINE_WIDTH);
+        pad_line(lines[line_count++], 256, "Addr    :", addr_val, LINE_WIDTH);
 
-        // Line 3: Function count
         char funcs_val[32];
         if (is_abstract) {
             qsnprintf(funcs_val, sizeof(funcs_val), "%d (%d pure)", vt->func_count, vt->pure_virtual_count);
         } else {
             qsnprintf(funcs_val, sizeof(funcs_val), "%d", vt->func_count);
         }
-        build_padded_line(lines[line_count++], 256, "Funcs   :", funcs_val, LINE_WIDTH);
+        pad_line(lines[line_count++], 256, "Funcs   :", funcs_val, LINE_WIDTH);
 
-        // Line 4: Parent class
         char parent_val[128];
         ea_t parent_vtable_addr = BADADDR;
+        std::string stats_parent_name;
         if (!vt->base_classes.empty()) {
             const char* parent_name = vt->base_classes[0].c_str();
             if (vt->base_classes.size() > 1) {
@@ -295,75 +297,96 @@ inline void show_inheritance_graph(
             } else {
                 qsnprintf(parent_val, sizeof(parent_val), "%s", parent_name);
             }
-            // Get parent vtable address for inheritance stats
-            auto parent_it = vtable_map.find(vt->base_classes[0]);
-            if (parent_it != vtable_map.end()) {
-                parent_vtable_addr = parent_it->second->address;
+            for (const auto& base : vt->base_classes) {
+                auto parent_it = vtable_map.find(base);
+                if (parent_it != vtable_map.end() && !parent_it->second->is_intermediate) {
+                    parent_vtable_addr = parent_it->second->address;
+                    stats_parent_name = base;
+                    break;
+                }
             }
         } else {
             qsnprintf(parent_val, sizeof(parent_val), "(root)");
         }
-        build_padded_line(lines[line_count++], 256, "Parent  :", parent_val, LINE_WIDTH);
+        pad_line(lines[line_count++], 256, "Parent  :", parent_val, LINE_WIDTH);
 
-        // Line 5: Derived count (Kids)
         char kids_val[16];
         qsnprintf(kids_val, sizeof(kids_val), "%d", vt->derived_count);
-        build_padded_line(lines[line_count++], 256, "Kids    :", kids_val, LINE_WIDTH);
+        pad_line(lines[line_count++], 256, "Children:", kids_val, LINE_WIDTH);
 
-        // Lines 6-8: Inheritance stats (if has parent) - NO separator, just data
         if (parent_vtable_addr != BADADDR) {
             int inherited = 0, overridden = 0, new_funcs = 0;
-            calculate_inheritance_stats(vt->address, parent_vtable_addr, vt->is_windows,
-                                       sorted_vtables, inherited, overridden, new_funcs);
+            calc_stats(vt->address, parent_vtable_addr, vt->is_windows, sorted_vtables, inherited, overridden, new_funcs);
 
-            // Add inheritance breakdown as separate lines (no separator before)
             char inh_val[16], ovr_val[16], new_val[16];
             qsnprintf(inh_val, sizeof(inh_val), "%d", inherited);
             qsnprintf(ovr_val, sizeof(ovr_val), "%d", overridden);
             qsnprintf(new_val, sizeof(new_val), "%d", new_funcs);
 
-            build_padded_line(lines[line_count++], 256, "Inherit :", inh_val, LINE_WIDTH);
-            build_padded_line(lines[line_count++], 256, "Override:", ovr_val, LINE_WIDTH);
-            build_padded_line(lines[line_count++], 256, "New     :", new_val, LINE_WIDTH);
+            pad_line(lines[line_count++], 256, "Inherit :", inh_val, LINE_WIDTH);
+            pad_line(lines[line_count++], 256, "Override:", ovr_val, LINE_WIDTH);
+            pad_line(lines[line_count++], 256, "New     :", new_val, LINE_WIDTH);
         }
 
-        // Combine all lines
         label[0] = '\0';
         for (int i = 0; i < line_count; i++) {
             if (i > 0) qstrncat(label, "\n", sizeof(label) - strlen(label) - 1);
             qstrncat(label, lines[i], sizeof(label) - strlen(label) - 1);
         }
 
-        uint32 color = (cls == class_name) ? SELECTED_COLOR :
-                       is_abstract ? ABSTRACT_COLOR : NORMAL_COLOR;
+        uint32 color = (cls == class_name) ? SELECTED_COLOR : is_abstract ? ABSTRACT_COLOR : NORMAL_COLOR;
 
         int node = data->add_node(label, vt->address, color);
         class_to_node[cls] = node;
     }
 
-    // Add edges (inheritance relationships) for lineage classes
+    // Edges
     for (const std::string& cls : lineage) {
         auto it = vtable_map.find(cls);
-        if (it == vtable_map.end()) continue;
-
         int child_node = class_to_node[cls];
-        for (const auto& base : it->second->base_classes) {
-            auto parent_it = class_to_node.find(base);
+
+        if (it == vtable_map.end()) {
+            for (const auto& [other_cls, other_vt] : vtable_map) {
+                for (size_t i = 0; i < other_vt->base_classes.size(); ++i) {
+                    if (other_vt->base_classes[i] == cls) {
+                        if (i + 1 < other_vt->base_classes.size()) {
+                            const std::string& parent = other_vt->base_classes[i + 1];
+                            auto parent_it = class_to_node.find(parent);
+                            if (parent_it != class_to_node.end()) {
+                                data->add_edge(parent_it->second, child_node);
+                            }
+                        }
+                        goto next_class;
+                    }
+                }
+            }
+            next_class:
+            continue;
+        }
+
+        // Intermediate: use parent_class field
+        if (it->second->is_intermediate && !it->second->parent_class.empty()) {
+            auto parent_it = class_to_node.find(it->second->parent_class);
             if (parent_it != class_to_node.end()) {
-                data->add_edge(parent_it->second, child_node);  // parent -> child
+                data->add_edge(parent_it->second, child_node);
+            }
+            continue;
+        }
+
+        if (!it->second->base_classes.empty()) {
+            const std::string& direct_parent = it->second->base_classes[0];
+            auto parent_it = class_to_node.find(direct_parent);
+            if (parent_it != class_to_node.end()) {
+                data->add_edge(parent_it->second, child_node);
             }
         }
     }
 
-    // Create interactive graph
     interactive_graph_t* graph = create_interactive_graph(10000 + rand());
 
-    // Add nodes (first just add them, then set info)
-    for (int i = 0; i < data->node_count; i++) {
-        graph->resize(i + 1);  // Ensure graph has space for node i
-    }
+    for (int i = 0; i < data->node_count; i++)
+        graph->resize(i + 1);
 
-    // Set node info (text, color, address)
     for (int i = 0; i < data->node_count; i++) {
         node_info_t ni;
         ni.text = data->node_labels[i].c_str();
@@ -372,7 +395,6 @@ inline void show_inheritance_graph(
         set_node_info(graph->gid, i, ni, NIF_TEXT | NIF_BG_COLOR | NIF_EA);
     }
 
-    // Add edges
     for (const auto& [from, tos] : data->edges) {
         for (int to : tos) {
             edge_info_t ei;
@@ -380,23 +402,19 @@ inline void show_inheritance_graph(
         }
     }
 
-    // Create viewer and display
     graph_viewer_t* viewer = create_graph_viewer("Inheritance Lineage", graph->gid, graph_callback, data, 0);
     set_viewer_graph(viewer, graph);
-
-    // Use DIGRAPH layout for better packing and fewer line crossings
     graph->del_custom_layout();
     graph->create_digraph_layout();
 
     display_widget(viewer, WOPN_DP_TAB | WOPN_PERSIST);
     refresh_viewer(viewer);
 
-    // Set zoom to 100% and center on selected class
     int selected_node = class_to_node[class_name];
     viewer_center_on(viewer, selected_node);
 
     graph_location_info_t gli;
-    gli.zoom = 1.0;  // 100% zoom
+    gli.zoom = 1.0;
     viewer_set_gli(viewer, &gli, 0);
 
     refresh_viewer(viewer);

@@ -4,6 +4,29 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.2.1] - 2025-12-21
+
+### Added
+
+- **RTTI Auto-Detection**: Automatic MSVC vs GCC/Itanium format detection based on file type and symbol mangling
+- **Intermediate Class Support**: Detect and display compiler-inlined classes that exist in RTTI chain but have no vtable symbol
+- **Inheritance Graph Enhancement**: Intermediate classes shown with proper parent-child connections and "uses [ParentVTable]" info
+- **MSVC x64 Pointer Format Detection**: Auto-detect 64-bit absolute pointers vs 32-bit RVA format in Complete Object Locator
+
+### Fixed
+
+- **Nested Class Name Normalization**: MSVC nested classes now properly display as `Outer::Inner` instead of `Outer@Inner`
+- **Graph Edge Logic**: Fixed intermediate class connections - parent→intermediate→child chain displays correctly
+- **Class Name Validation**: Relaxed validation to support more edge cases
+
+### Improved
+
+- **Code Cleanup**: Compact comments, renamed functions, removed redundant code
+- **Chooser Simplification**: Removed unused Insert/Delete options from VTable list
+- **Buffer Sizes**: Increased limits for longer class names and RTTI strings
+
+---
+
 ## [1.2.0] - 2025-12-19 - Check README.md
 
 ### Added

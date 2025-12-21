@@ -9,6 +9,7 @@
 #include <vector>
 #include <algorithm>
 #include "vtable_utils.h"
+#include "rtti_detector.h"
 
 namespace smart_annotator {
 
@@ -19,28 +20,29 @@ using vtable_utils::OPCODE_REX_W;
 using vtable_utils::OPCODE_REX;
 using vtable_utils::OPCODE_REX_B;
 
-inline int detect_vfunc_start_offset(ea_t vtable_addr, bool is_windows) {
+inline int detect_vfunc_start_offset(ea_t vtable_addr, bool) {
     using namespace vtable_utils;
 
-    if (is_windows) return 0;
+    const auto& config = rtti_detector::get_config(vtable_addr);
+    if (config.is_msvc) return 0;
 
     const int ptr_size = get_ptr_size();
     for (int i = 0; i < MAX_VFUNC_SEARCH_DEPTH; ++i) {
-        ea_t entry_addr = vtable_addr + (i * ptr_size);
-        if (!is_mapped(entry_addr)) continue;
+        ea_t entry = vtable_addr + (i * ptr_size);
+        if (!is_mapped(entry)) continue;
 
-        segment_t* seg = getseg(read_ptr(entry_addr));
+        segment_t* seg = getseg(read_ptr(entry));
         if (seg && (seg->perm & SEGPERM_EXEC)) return i;
     }
-    return DEFAULT_VFUNC_START_OFFSET;
+
+    // GCC/Itanium: [offset-to-top, typeinfo*, vfuncs...]
+    return (config.rtti_offset < 0) ? 2 : DEFAULT_VFUNC_START_OFFSET;
 }
 
-inline bool is_pure_virtual(ea_t func_ptr) {
-    if (!func_ptr || func_ptr == BADADDR) return false;
-
+inline bool is_pure_virtual(ea_t func) {
+    if (!func || func == BADADDR) return false;
     qstring name;
-    if (!get_name(&name, func_ptr) || name.empty()) return false;
-
+    if (!get_name(&name, func)) return false;
     return name.find("__cxa_pure_virtual") != qstring::npos ||
            name.find("_purecall") != qstring::npos ||
            name.find("purevirt") != qstring::npos;
@@ -48,36 +50,32 @@ inline bool is_pure_virtual(ea_t func_ptr) {
 
 inline bool is_typeinfo(ea_t ptr) {
     qstring name;
-    if (!get_name(&name, ptr)) return false;
-    return name.find("_ZTI") != qstring::npos || name.find("typeinfo") != qstring::npos;
+    return get_name(&name, ptr) &&
+           (name.find("_ZTI") != qstring::npos || name.find("typeinfo") != qstring::npos);
 }
 
-inline bool is_valid_function_pointer(ea_t addr) {
+inline bool is_valid_func_ptr(ea_t addr) {
     if (!addr || addr == BADADDR || !is_mapped(addr)) return false;
 
     segment_t* seg = getseg(addr);
     if (!seg || !(seg->perm & SEGPERM_EXEC)) return false;
-
     if (is_code(get_flags(addr))) return true;
 
     qstring name;
-    if (get_name(&name, addr) && !name.empty()) {
+    if (get_name(&name, addr)) {
         const char* n = name.c_str();
-        if (strncmp(n, "sub_", 4) == 0 ||
-            strncmp(n, "nullsub_", 8) == 0 ||
-            strncmp(n, "j_", 2) == 0 ||
-            strstr(n, "_vfunc_")) {
+        if (strncmp(n, "sub_", 4) == 0 || strncmp(n, "nullsub_", 8) == 0 ||
+            strncmp(n, "j_", 2) == 0 || strstr(n, "_vfunc_"))
             return true;
-        }
     }
 
     uint8 b = get_byte(addr);
     return b == OPCODE_PUSH_RBP || b == OPCODE_REX_W || b == OPCODE_REX || b == OPCODE_REX_B;
 }
 
-inline ea_t find_next_vtable(ea_t current, const std::vector<ea_t>& sorted_addrs) {
-    auto it = std::upper_bound(sorted_addrs.begin(), sorted_addrs.end(), current);
-    return (it != sorted_addrs.end()) ? *it : BADADDR;
+inline ea_t find_next_vtable(ea_t current, const std::vector<ea_t>& sorted) {
+    auto it = std::upper_bound(sorted.begin(), sorted.end(), current);
+    return (it != sorted.end()) ? *it : BADADDR;
 }
 
 struct VTableEntry {
@@ -129,7 +127,7 @@ inline VTableStats scan_vtable(
 
         bool pure_virt = is_pure_virtual(func_ptr);
 
-        if (!pure_virt && !is_valid_function_pointer(func_ptr)) {
+        if (!pure_virt && !is_valid_func_ptr(func_ptr)) {
             if (is_typeinfo(func_ptr)) {
                 ++consecutive_invalid;
                 continue;

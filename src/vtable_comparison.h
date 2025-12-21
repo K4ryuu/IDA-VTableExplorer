@@ -10,11 +10,11 @@
 namespace vtable_comparison {
 
 enum class OverrideStatus {
-    INHERITED,      // Same function as base class
-    OVERRIDDEN,     // Different function than base class
-    NEW_VIRTUAL,    // Function exists only in derived class
-    PURE_TO_IMPL,   // Base has pure virtual, derived has implementation
-    IMPL_TO_PURE    // Base has implementation, derived has pure virtual (rare)
+    INHERITED,
+    OVERRIDDEN,
+    NEW_VIRTUAL,
+    PURE_TO_IMPL,
+    IMPL_TO_PURE
 };
 
 struct ComparisonEntry {
@@ -41,108 +41,79 @@ struct VTableComparison {
     int new_virtual_count;
 };
 
-inline std::string get_function_name(ea_t func_ptr) {
-    if (func_ptr == BADADDR || !func_ptr) return "";
-
+inline std::string get_func_name(ea_t func) {
+    if (!func || func == BADADDR) return "";
     qstring name;
-    if (get_name(&name, func_ptr)) {
-        return std::string(name.c_str());
-    }
-
-    return "";
+    return get_name(&name, func) ? std::string(name.c_str()) : "";
 }
 
 inline VTableComparison compare_vtables(
-    ea_t derived_vtable,
-    ea_t base_vtable,
-    bool is_windows,
-    const std::vector<ea_t>& sorted_vtables,
-    const std::string& derived_class = "",
-    const std::string& base_class = "")
+    ea_t derived_vt, ea_t base_vt, bool is_win,
+    const std::vector<ea_t>& sorted,
+    const std::string& derived_cls = "",
+    const std::string& base_cls = "")
 {
-    VTableComparison result;
-    result.derived_class = derived_class;
-    result.base_class = base_class;
-    result.derived_vtable = derived_vtable;
-    result.base_vtable = base_vtable;
-    result.inherited_count = 0;
-    result.overridden_count = 0;
-    result.new_virtual_count = 0;
+    VTableComparison r;
+    r.derived_class = derived_cls;
+    r.base_class = base_cls;
+    r.derived_vtable = derived_vt;
+    r.base_vtable = base_vt;
+    r.inherited_count = r.overridden_count = r.new_virtual_count = 0;
 
-    // Get vtable entries for both classes
-    auto derived_entries = smart_annotator::get_vtable_entries(derived_vtable, is_windows, sorted_vtables);
-    auto base_entries = smart_annotator::get_vtable_entries(base_vtable, is_windows, sorted_vtables);
+    auto derived_entries = smart_annotator::get_vtable_entries(derived_vt, is_win, sorted);
+    auto base_entries = smart_annotator::get_vtable_entries(base_vt, is_win, sorted);
 
-    // Create map of base class functions by index
     std::map<int, smart_annotator::VTableEntry> base_map;
-    for (const auto& entry : base_entries) {
-        base_map[entry.index] = entry;
-    }
+    for (const auto& e : base_entries) base_map[e.index] = e;
 
-    // Compare each derived class entry with base class
-    for (const auto& derived : derived_entries) {
-        ComparisonEntry comp;
-        comp.index = derived.index;
-        comp.derived_entry_addr = derived.entry_addr;
-        comp.derived_func_ptr = derived.func_ptr;
-        comp.is_pure_virtual_derived = derived.is_pure_virtual;
-        comp.derived_func_name = get_function_name(derived.func_ptr);
+    for (const auto& d : derived_entries) {
+        ComparisonEntry c;
+        c.index = d.index;
+        c.derived_entry_addr = d.entry_addr;
+        c.derived_func_ptr = d.func_ptr;
+        c.is_pure_virtual_derived = d.is_pure_virtual;
+        c.derived_func_name = get_func_name(d.func_ptr);
 
-        // Check if this index exists in base class
-        auto it = base_map.find(derived.index);
+        auto it = base_map.find(d.index);
         if (it != base_map.end()) {
-            // Function exists in both base and derived
-            const auto& base = it->second;
-            comp.base_entry_addr = base.entry_addr;
-            comp.base_func_ptr = base.func_ptr;
-            comp.is_pure_virtual_base = base.is_pure_virtual;
-            comp.base_func_name = get_function_name(base.func_ptr);
+            const auto& b = it->second;
+            c.base_entry_addr = b.entry_addr;
+            c.base_func_ptr = b.func_ptr;
+            c.is_pure_virtual_base = b.is_pure_virtual;
+            c.base_func_name = get_func_name(b.func_ptr);
 
-            // Determine override status
-            if (comp.derived_func_ptr == comp.base_func_ptr) {
-                comp.status = OverrideStatus::INHERITED;
-                result.inherited_count++;
+            if (c.derived_func_ptr == c.base_func_ptr) {
+                c.status = OverrideStatus::INHERITED;
+                r.inherited_count++;
             } else {
-                if (comp.is_pure_virtual_base && !comp.is_pure_virtual_derived) {
-                    comp.status = OverrideStatus::PURE_TO_IMPL;
-                } else if (!comp.is_pure_virtual_base && comp.is_pure_virtual_derived) {
-                    comp.status = OverrideStatus::IMPL_TO_PURE;
-                } else {
-                    comp.status = OverrideStatus::OVERRIDDEN;
-                }
-                result.overridden_count++;
+                if (c.is_pure_virtual_base && !c.is_pure_virtual_derived)
+                    c.status = OverrideStatus::PURE_TO_IMPL;
+                else if (!c.is_pure_virtual_base && c.is_pure_virtual_derived)
+                    c.status = OverrideStatus::IMPL_TO_PURE;
+                else
+                    c.status = OverrideStatus::OVERRIDDEN;
+                r.overridden_count++;
             }
         } else {
-            // Function only exists in derived class
-            comp.base_entry_addr = BADADDR;
-            comp.base_func_ptr = BADADDR;
-            comp.is_pure_virtual_base = false;
-            comp.base_func_name = "";
-            comp.status = OverrideStatus::NEW_VIRTUAL;
-            result.new_virtual_count++;
+            c.base_entry_addr = BADADDR;
+            c.base_func_ptr = BADADDR;
+            c.is_pure_virtual_base = false;
+            c.status = OverrideStatus::NEW_VIRTUAL;
+            r.new_virtual_count++;
         }
-
-        result.entries.push_back(comp);
+        r.entries.push_back(c);
     }
-
-    return result;
+    return r;
 }
 
-// Find base class vtable by class name
-inline ea_t find_vtable_by_class_name(
-    const std::string& class_name,
-    const std::vector<VTableInfo>& all_vtables)
-{
-    for (const auto& vt : all_vtables) {
-        if (vt.class_name == class_name) {
-            return vt.address;
-        }
-    }
+inline ea_t find_vtable_by_class_name(const std::string& name, const std::vector<VTableInfo>& vtables) {
+    for (const auto& vt : vtables)
+        if (vt.class_name == name) return vt.address;
     return BADADDR;
 }
 
-inline const char* get_status_string(OverrideStatus status) {
-    switch (status) {
+inline const char* get_status_string(OverrideStatus s) {
+    switch (s) {
         case OverrideStatus::INHERITED:    return "Inherited";
         case OverrideStatus::OVERRIDDEN:   return "Overridden";
         case OverrideStatus::NEW_VIRTUAL:  return "New Virtual";
@@ -152,9 +123,9 @@ inline const char* get_status_string(OverrideStatus status) {
     }
 }
 
-inline uint32 get_status_text_color(OverrideStatus status) {
+inline uint32 get_status_color(OverrideStatus s) {
     using namespace vtable_utils;
-    switch (status) {
+    switch (s) {
         case OverrideStatus::INHERITED:    return STATUS_INHERITED;
         case OverrideStatus::OVERRIDDEN:   return STATUS_OVERRIDDEN;
         case OverrideStatus::NEW_VIRTUAL:  return STATUS_NEW_VIRTUAL;

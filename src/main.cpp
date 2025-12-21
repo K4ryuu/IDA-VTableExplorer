@@ -237,7 +237,7 @@ plugin_t PLUGIN = {
     init,
     nullptr,
     nullptr,
-    "VTable Explorer v1.2.0 - Graph-based inheritance view & high quality vtable analysis",
+    "VTable Explorer v1.2.1 - Graph-based inheritance view & high quality vtable analysis",
     "https://github.com/K4ryuu/IDA-VTableExplorer",
     "VTableExplorer",
 #ifdef __MAC__
