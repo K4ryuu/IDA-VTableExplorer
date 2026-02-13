@@ -4,6 +4,23 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.2.3] - 2026-02-13
+
+### Added
+
+-  **COL-based VTable Discovery**: Detect vtables that have RTTI Complete Object Locator (`??_R4`) symbols but no `??_7` vtable symbol
+   -  Second-pass scan in `find_vtables()` processes all `??_R4` name entries
+   -  Extracts class name from COL's TypeDescriptor using existing RTTI parser
+   -  Locates vtable via name construction (`??_R4` → `??_7` lookup) or data xref walking
+   -  Validates vtable entries point to executable code before adding
+   -  Supports both x86 (absolute pointers) and x64 (RVA-based) COL formats
+
+### Fixed
+
+-  **Missing VTables in Windows PE Binaries**: Classes like `CSource2Server`, `CEngineServer` that only had `??_R4` COL symbols are now properly discovered and displayed
+
+---
+
 ## [1.2.2] - 2025-12-23
 
 ### Added
