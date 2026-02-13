@@ -4,6 +4,9 @@
 #include <kernwin.hpp>
 #include "vtable_chooser.h"
 
+#define PLUGIN_VERSION "1.2.2"
+#define PLUGIN_DESCRIPTION "VTable Explorer v" PLUGIN_VERSION " - Graph-based inheritance view & high quality vtable analysis"
+
 struct vtable_explorer_action_t : public action_handler_t {
     virtual int idaapi activate(action_activation_ctx_t*) override {
         show_vtable_chooser();
@@ -176,11 +179,7 @@ plugmod_t* idaapi init() {
         "vtable:explorer",
         "VTable Explorer",
         &ah_explorer,
-#ifdef __MAC__
-        "Cmd+Shift+V",
-#else
-        "Ctrl+Shift+V",
-#endif
+        nullptr,
         "Open VTable Explorer with searchable class list",
         -1
     );
@@ -189,11 +188,7 @@ plugmod_t* idaapi init() {
         "vtable:tree",
         "Show Inheritance Tree",
         &ah_tree,
-#ifdef __MAC__
-        "Cmd+Shift+T",
-#else
-        "Ctrl+Shift+T",
-#endif
+        nullptr,
         "Show inheritance graph for selected class",
         -1
     );
@@ -202,11 +197,7 @@ plugmod_t* idaapi init() {
         "vtable:compare",
         "Compare with Base",
         &ah_compare,
-#ifdef __MAC__
-        "Cmd+Shift+C",
-#else
-        "Ctrl+Shift+C",
-#endif
+        nullptr,
         "Compare vtable with base class",
         -1
     );
@@ -286,12 +277,8 @@ plugin_t PLUGIN = {
     init,
     nullptr,
     nullptr,
-    "VTable Explorer v1.2.2 - Graph-based inheritance view & high quality vtable analysis",
+    PLUGIN_DESCRIPTION,
     "https://github.com/K4ryuu/IDA-VTableExplorer",
     "VTableExplorer",
-#ifdef __MAC__
-    "Cmd-Shift-V"
-#else
-    "Ctrl-Shift-V"
-#endif
+    nullptr
 };

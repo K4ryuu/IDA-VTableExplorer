@@ -828,7 +828,7 @@ inline void close_vtable_chooser() {
 
 inline void show_inheritance_tree_action(action_activation_ctx_t* ctx) {
     if (!g_chooser) {
-        warning("VTable Explorer not open.\nPlease open it first with Cmd/Ctrl+Shift+V");
+        warning("VTable Explorer not open.\nPlease open it first from the context menu");
         return;
     }
 
@@ -841,7 +841,7 @@ inline void show_inheritance_tree_action(action_activation_ctx_t* ctx) {
 
 inline void show_compare_base_action(action_activation_ctx_t* ctx) {
     if (!g_chooser) {
-        warning("VTable Explorer not open.\nPlease open it first with Cmd/Ctrl+Shift+V");
+        warning("VTable Explorer not open.\nPlease open it first from the context menu");
         return;
     }
 
@@ -902,7 +902,7 @@ inline void compbrowser_toggle_action(action_activation_ctx_t* ctx) {
 
 inline void browse_functions_action(action_activation_ctx_t* ctx) {
     if (!g_chooser) {
-        warning("VTable Explorer not open.\nPlease open it first with Cmd/Ctrl+Shift+V");
+        warning("VTable Explorer not open.\nPlease open it first from the context menu");
         return;
     }
 
@@ -915,7 +915,7 @@ inline void browse_functions_action(action_activation_ctx_t* ctx) {
 
 inline void annotate_all_action(action_activation_ctx_t* ctx) {
     if (!g_chooser) {
-        warning("VTable Explorer not open.\nPlease open it first with Cmd/Ctrl+Shift+V");
+        warning("VTable Explorer not open.\nPlease open it first from the context menu");
         return;
     }
     g_chooser->annotate_all_vtables();
