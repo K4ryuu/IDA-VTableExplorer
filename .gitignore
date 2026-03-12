@@ -2,6 +2,7 @@
 sdk/
 
 # Build artifacts
+build/
 release/
 *.so
 *.dll
