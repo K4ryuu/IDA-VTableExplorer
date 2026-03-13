@@ -3,6 +3,7 @@
 #include <loader.hpp>
 #include <kernwin.hpp>
 #include "vtable_chooser.h"
+#include "vtable_idc.h"
 
 #define PLUGIN_VERSION "1.2.3"
 #define PLUGIN_DESCRIPTION "VTable Explorer v" PLUGIN_VERSION " - Graph-based inheritance view & high quality vtable analysis"
@@ -161,6 +162,7 @@ struct vtable_plugin_ctx_t : public plugmod_t {
     }
 
     virtual ~vtable_plugin_ctx_t() {
+        vtable_idc::unregister_vtable_idc_functions();
         unregister_action("vtable:explorer");
         unregister_action("vtable:tree");
         unregister_action("vtable:compare");
@@ -267,6 +269,8 @@ plugmod_t* idaapi init() {
     register_action(desc_comptoggle);
 
     hook_event_listener(HT_UI, &ui_listener, nullptr, 0);
+
+    vtable_idc::register_vtable_idc_functions();
 
     return new vtable_plugin_ctx_t;
 }
