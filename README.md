@@ -78,6 +78,7 @@ macOS:    /Applications/IDA Pro 9.x.app/Contents/MacOS/plugins/vtable64-macos-{a
 ## Quick Start
 
 **Open Plugin**
+
 - Keyboard: `Ctrl+Shift+V` (Win/Linux) or `Cmd+Shift+V` (macOS)
 - Menu: `Edit → Plugins → VTableExplorer`
 - Context menu: Right-click in disassembly
@@ -179,6 +180,7 @@ Windows/MSVC:  ??_7Player@@6B@  → Player::`vftable'
 **RTTI Parsing**
 
 Automatic Runtime Type Information parsing extracts:
+
 - Base class relationships
 - Multiple inheritance detection
 - Virtual inheritance identification
@@ -227,6 +229,7 @@ make build-all
 **Output**
 
 Binaries in `release/`:
+
 - `vtable64-linux-x64.so`
 - `vtable64-linux-arm64.so`
 - `vtable64-macos-arm64.dylib`
@@ -283,4 +286,4 @@ See [docker/README.md](docker/README.md) for build details.
 
 ## License
 
-MIT License - Free for personal and commercial use
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
