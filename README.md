@@ -280,8 +280,6 @@ See [docker/README.md](docker/README.md) for build details.
 
 **Original concept** by [KillStr3aK](https://github.com/KillStr3aK) - Python vtable script
 
-**Build system** adapted from [IDA-Fusion-Enhanced](https://github.com/K4ryuu/IDA-Fusion-Enhanced)
-
 ---
 
 ## License

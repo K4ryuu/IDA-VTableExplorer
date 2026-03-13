@@ -5,7 +5,7 @@
 #include "vtable_chooser.h"
 #include "vtable_idc.h"
 
-#define PLUGIN_VERSION "1.2.3"
+#define PLUGIN_VERSION "1.3.0"
 #define PLUGIN_DESCRIPTION "VTable Explorer v" PLUGIN_VERSION " - Graph-based inheritance view & high quality vtable analysis"
 
 struct vtable_explorer_action_t : public action_handler_t {
