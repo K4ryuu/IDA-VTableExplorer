@@ -4,6 +4,31 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.3.0] - 2026-03-13 (PR [#6](https://github.com/K4ryuu/IDA-VTableExplorer/pull/6) by [@rweijnen](https://github.com/rweijnen))
+
+### Added
+
+-  **JSON Export via IDC Functions**: Programmatic access to vtable data through 4 IDC functions callable from IDAPython (`idc.eval_idc()`)
+   -  `VTableExplorer_Scan()` — All vtables with class names, function counts, inheritance info
+   -  `VTableExplorer_Entries(addr)` — Per-slot entries for a specific vtable
+   -  `VTableExplorer_Compare(derived, base)` — Inherited/overridden/new virtual comparison
+   -  `VTableExplorer_Hierarchy(class_name)` — Ancestors and descendants for a class
+-  **IDAPython Convenience Wrapper** (`scripts/vtable_explorer.py`): Thin wrapper with `scan()`, `entries()`, `compare()`, `hierarchy()` functions
+-  **Test Script** (`scripts/test_json_export.py`): Validates all 4 IDC functions including schema checks and error handling
+-  **CMake Build Support**: Native Windows MSVC build via `CMakeLists.txt` (requires `IDASDK_DIR`)
+
+### New Files
+
+| File | Description |
+|---|---|
+| `src/vtable_json.h` | Minimal JSON serializer, no external dependencies |
+| `src/vtable_idc.h` | IDC function registration via `add_idc_func()`/`del_idc_func()` |
+| `scripts/vtable_explorer.py` | IDAPython convenience wrapper |
+| `scripts/test_json_export.py` | Test suite for JSON export |
+| `CMakeLists.txt` | Native Windows MSVC build |
+
+---
+
 ## [1.2.3] - 2026-02-13
 
 ### Added
